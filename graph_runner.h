@@ -91,7 +91,8 @@ int GraphRunner::Submit(std::unique_ptr<Type>&& pInput)
     mpGraph->GetOpNameListByInputName(
         Constants::sGraphRunnerInitInputName,
         headOpNameList);
-    for (int i = 0; i < headOpNameList.size(); i++)
+    int headOpNameListSize = headOpNameList.size();
+    for (int i = 0; i < headOpNameListSize; i++)
     {
         std::string opName = headOpNameList[i];
         //TODO: use IncrAndCheck?

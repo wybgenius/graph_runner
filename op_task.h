@@ -15,8 +15,8 @@ private:
 
 };
 
-template <typename OutputType, typename InputTypes>
-class OpTask<OutputType, InputTypes> : public IOpTask
+template <typename OutputType, typename... InputTypes>
+class OpTask<OutputType, InputTypes...> : public IOpTask
 {
 public:
 
