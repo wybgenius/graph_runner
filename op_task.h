@@ -1,27 +1,28 @@
 #ifndef GRAPHRUNNER_OP_TASK_H_
 #define GRAPHRUNNER_OP_TASK_H_
 
+#include <functional>
+
+#include "error_code.h"
+#include "op_base.h"
+
 namespace graphrunner
 {
 
-class IOpTask:
-{
-public:
-
-
-    //Run function
-
-private:
-
-};
-
 template <typename OutputType, typename... InputTypes>
-class OpTask<OutputType, InputTypes...> : public IOpTask
+class SyncOpTask : public SyncOpTaskBase
 {
 public:
+    SyncOpTask(const std::string& opName,
+               const std::vector<std::string>& inputNameList,
+               const std::string& outputName)
+    { }
 
+    virtual ~SyncOpTask() { }
 
-    //Run function override
+    virtual int Run(std::unique_ptr<IOpDataList>&& pInputList,
+                    std::vector<std::unique_ptr<IOpData>>& outputList) override
+    { return SUCC; }
 
 private:
 

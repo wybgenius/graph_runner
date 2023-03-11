@@ -1,53 +1,43 @@
 #ifndef GRAPHRUNNER_OP_OUTPUT_H_
 #define GRAPHRUNNER_OP_OUTPUT_H_
 
+#include <functional>
+
+#include "op_data.h"
+
 namespace graphrunner
 {
 
-class IOpOutput
-{
-
-};
-
 template <typename OutputType>
-class OpOutput : public IOpOutput
+class OpOutput
 {
 public:
-    OpOutput() { }
+    OpOutput() : mpData(new OpOutputData<OutputType>()) { }
 
-    ~OpOutput()
-    {
-        if (mDataAutoDelete)
-        {
-            delete mpData;
-            mDataAutoDelete = false;
-        }
-        mpData = NULL;
-    }
+    virtual ~OpOutput() { }
 
     void SetNewData(OutputType* pOutput)
     {
-        mpData = pOutput;
-        mDataAutoDelete = true;
+        mpData->SetNewData(pOutput);
     }
 
     void SetNewData(std::unique_ptr<OutputType>&& pOutput)
     {
-        mpData = pOutput.release();
-        mDataAutoDelete = true;
+        mpData->SetNewData(pOutput.release());
     }
 
     void SetExistData(const OutputType* pOutput)
     {
-        mpData = pOutput;
-        mDataAutoDelete = true;
+        mpData->SetExistData(pOutput);
     }
 
-    OutputType* GetRawData() { return mpData; }
+    void GetData(std::unique_ptr<OpOutputData<OutputType>>& pOutput)
+    {
+        pOutput.reset(mpData.release());
+    }
 
 private:
-    OutputType* mpData;
-    bool mDataAutoDelete;
+    std::unique_ptr<OpOutputData<OutputType>> mpData;
 };
 
 }

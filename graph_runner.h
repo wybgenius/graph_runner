@@ -11,6 +11,8 @@
 #include "thread_pool.h"
 #include "graph.h"
 #include "context.h"
+#include "op_base.h"
+#include "op_data.h"
 
 namespace graphrunner
 {
@@ -22,6 +24,8 @@ public:
                 int nThreads,
                 int maxTaskNum);
 
+    virtual ~GraphRunner();
+
     int Start();
     int Stop();
 
@@ -30,31 +34,23 @@ public:
 
     int Wait();
 
-    virtual ~GraphRunner();
-
 private:
-    void RunInternal(std::shared_ptr<Context>& context, std::string& opName);
+    class ExecuteTask;
 
-private:
-    class Task : public ThreadPool::Task
-    {
-    public:
-        Task(GraphRunner& runner, std::shared_ptr<Context>& pContext, std::string opName) : 
-            mRunner(runner), mpContext(pContext), mOpName(opName)
-        { }
-        virtual ~Task() { }
-        virtual void Submitted() { }
-        virtual int Wait(int &rtn) { return SUCC; }
-        virtual void Wait() { }
-        virtual void Run()
-        {
-            mRunner.RunInternal(mpContext, mOpName);
-        }
+    int SubmitInternal(const std::vector<std::string>& outputNameList,
+                       std::vector<std::unique_ptr<IOpData>>& inputList);
 
-        GraphRunner& mRunner;
-        std::shared_ptr<Context> mpContext;
-        std::string mOpName;
-    };
+    class OpTaskVisitor;
+
+    void RunInternal(std::shared_ptr<Context>& pContext, const std::string& opName);
+
+    void RunSyncOp(std::shared_ptr<Context>& pContext, SyncOpTaskBase& opTask);
+
+    //void RunASyncOp(std::shared_ptr<Context>& pContext, ASyncOpTaskBase& opTask);
+
+    void RunDone(std::shared_ptr<Context>& pContext,
+                 const std::vector<std::string>& outputNameList,
+                 std::vector<std::unique_ptr<IOpData>>& outputList);
 
 private:
     std::unique_ptr<Graph> mpGraph;
@@ -66,41 +62,14 @@ private:
 template <typename Type>
 int GraphRunner::Submit(std::unique_ptr<Type>&& pInput)
 {
-    //TODO: ret处理
-    int ret = SUCC;
+    std::unique_ptr<UniqPtrOpData<Type>> opInputData(new UniqPtrOpData<Type>());
+    opInputData->SetData(std::move(pInput));
 
-    std::shared_ptr<Context> pContext(new Context());
+    std::vector<std::string> initNameList = { Constants::sGraphRunnerInitInputName };
+    std::vector<std::unique_ptr<IOpData>> initDataList;
+    initDataList.emplace_back(std::move(opInputData));
 
-    int opSize = mpGraph->OpSize();
-    for (int i = 0; i < opSize; i++)
-    {
-        int opInputDataSize = mpGraph->GetOpInputDataSize(i);
-        std::string opName = mpGraph->GetOpName(i);
-        pContext->InitOpInputDataContext(opName, opInputDataSize);
-    }
-
-    //TODO: WaitableNumeric Add opSize
-
-    std::unique_ptr<OpOutput<Type>> opOutput(new OpOutput<Type>);
-    opOutput->SetNewData(std::move(pInput));
-    pContext->SetOpOutputData(
-        Constants::sGraphRunnerInitInputName,
-        std::move(opOutput));
-
-    std::vector<std::string> headOpNameList;
-    mpGraph->GetOpNameListByInputName(
-        Constants::sGraphRunnerInitInputName,
-        headOpNameList);
-    int headOpNameListSize = headOpNameList.size();
-    for (int i = 0; i < headOpNameListSize; i++)
-    {
-        std::string opName = headOpNameList[i];
-        //TODO: use IncrAndCheck?
-        pContext->IncrOpInputDataContext(opName);
-        mpThreadPool->Submit(std::make_shared<Task>(*this, pContext, opName));
-    }
-
-    return ret;
+    return SubmitInternal(initNameList, initDataList);
 }
 
 }

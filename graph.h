@@ -6,7 +6,9 @@
 #include <functional>
 
 #include "error_code.h"
+#include "op_base.h"
 #include "op_output.h"
+#include "op_task.h"
 
 namespace graphrunner
 {
@@ -27,13 +29,22 @@ public:
             const std::function<int(OpOutput<OutputType>&,
                                     const InputTypes*...)>& func);
 
-    int OpSize() { return 0; }
+    int GetOp(
+            const std::string& opName,
+            std::shared_ptr<IOpTask>& pTask) { return SUCC; }
 
-    int GetOpInputDataSize(int index) { return 0; }
+    int Build() { return SUCC; }
+
+    int OpSize() { return 0; }
 
     std::string GetOpName(int index) { return ""; }
 
-    int GetOpNameListByInputName(std::string inputDataName, std::vector<std::string>& opNameList) { return SUCC; }
+    int GetOpInputDataSize(int index) { return 0; }
+
+    int GetOpNameListByInputName(
+            const std::string& inputDataName,
+            std::vector<std::string>& opNameList)
+    { return SUCC; }
 
 };
 

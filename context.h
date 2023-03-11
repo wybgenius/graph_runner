@@ -2,9 +2,10 @@
 #define GRAPHRUNNER_CONTEXT_H_
 
 #include <string>
+#include <functional>
 
 #include "error_code.h"
-#include "op_output.h"
+#include "op_base.h"
 
 namespace graphrunner
 {
@@ -16,11 +17,15 @@ public:
 
     ~Context() { }
 
-    int InitOpInputDataContext(std::string opName, int opInputDataSize) { return SUCC; }
+    int InitOpInputDataContext(const std::string& opName,
+                               int opInputDataSize) { return SUCC; }
 
-    int IncrOpInputDataContext(std::string opName) { return SUCC; }
+    int IncrAndCheckOpInputDataContext(const std::string& opName) { return SUCC; }
 
-    int SetOpOutputData(std::string outputDataName, std::unique_ptr<IOpOutput>&& outputData) { return SUCC; }
+    int SetOpOutputData(const std::string& outputDataName,
+                        std::unique_ptr<IOpData>&& outputData) { return SUCC; }
+
+    const void* GetOpOutputData(const std::string& outputDataName) { return NULL; }
 
 private:
     // lock?
