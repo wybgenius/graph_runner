@@ -162,7 +162,7 @@ TEST(GraphRunnerNormalUnitTest, ASyncOpUnitTest1)
     EXPECT_EQ(rtn, SUCC);
     pRunner->Stop();
 
-    EXPECT_EQ(count, 1);
+    EXPECT_EQ(count, 2);
 }
 
 }
