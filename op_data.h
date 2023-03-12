@@ -51,8 +51,26 @@ public:
         mpData = std::move(pData);
     }
 
+    void Reset()
+    {
+        mpData.reset();
+    }
+
 private:
     std::unique_ptr<Type> mpData;
+};
+
+class NullOpData : public IOpData
+{
+public:
+    NullOpData() { }
+    
+    virtual ~NullOpData() { }
+
+    virtual const void* GetData() const override
+    {   
+        return NULL;
+    }
 };
 
 template <typename Type>
@@ -65,7 +83,8 @@ public:
     {   
         if (mDataAutoDelete)
         {   
-            delete mpData;
+            if (mpData)
+                delete mpData;
             mDataAutoDelete = false;
         }
         mpData = NULL;
@@ -85,7 +104,7 @@ public:
     void SetExistData(const Type* pOutput)
     {   
         mpData = pOutput; 
-        mDataAutoDelete = true;
+        mDataAutoDelete = false;
     }
 
 private:

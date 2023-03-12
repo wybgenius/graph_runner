@@ -25,10 +25,11 @@ public:
     int SetOpOutputData(const std::string& outputDataName,
                         std::unique_ptr<IOpData>&& outputData) { return SUCC; }
 
-    const void* GetOpOutputData(const std::string& outputDataName) { return NULL; }
+    using ConstVoidPtr = const void*;
+    int GetOpOutputData(const std::string& outputDataName, ConstVoidPtr& opOutputData) { return SUCC; }
 
 private:
-    // lock?
+    // lock
 
     // map: op name -> op context info(input data size, current input data ready size)
 

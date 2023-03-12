@@ -4,4 +4,8 @@
 //success
 #define SUCC 0
 
+#define ERR -1
+
+#define CHECK_RTN(x) if (x == SUCC); else return x
+
 #endif

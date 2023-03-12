@@ -1,3 +1,5 @@
+#include <cstdlib>
+
 #include "error_code.h"
 #include "graph_runner.h"
 
@@ -29,6 +31,7 @@ int GraphRunner::Stop()
 int GraphRunner::Wait()
 {
     //TODO: WaitableNumeric Wait
+    //TODO: 返回全局的error code
 
     return SUCC;
 }
@@ -45,7 +48,7 @@ public:
     virtual void Wait() { }
     virtual void Run()
     {
-        mRunner.RunInternal(mpContext, mOpName);
+        mRunner.RunOpInternal(mpContext, mOpName);
     }
 
 private:
@@ -57,8 +60,7 @@ private:
 int GraphRunner::SubmitInternal(const std::vector<std::string>& initNameList,
                                 std::vector<std::unique_ptr<IOpData>>& initDataList)
 {
-    //TODO: ret处理
-    //int ret;
+    int rtn;
 
     std::shared_ptr<Context> pContext(new Context());
 
@@ -67,13 +69,14 @@ int GraphRunner::SubmitInternal(const std::vector<std::string>& initNameList,
     {
         int opInputDataSize = mpGraph->GetOpInputDataSize(i);
         std::string opName = mpGraph->GetOpName(i);
-        pContext->InitOpInputDataContext(opName, opInputDataSize);
+        rtn = pContext->InitOpInputDataContext(opName, opInputDataSize);
+        CHECK_RTN(rtn);
     }
 
     //TODO: WaitableNumeric Add opSize
 
     //init fake op run done
-    RunDone(pContext, initNameList, initDataList);
+    RunOpDone(pContext, initNameList, initDataList);
 
     return SUCC;
 }
@@ -98,12 +101,16 @@ private:
     std::shared_ptr<Context> mpContext;
 };
 
-void GraphRunner::RunInternal(std::shared_ptr<Context>& pContext, const std::string& opName)
+void GraphRunner::RunOpInternal(std::shared_ptr<Context>& pContext, const std::string& opName)
 {
-    //int ret;
+    int rtn;
 
     std::shared_ptr<IOpTask> pTask;
-    mpGraph->GetOp(opName, pTask);
+    rtn = mpGraph->GetOp(opName, pTask);
+    if (rtn != SUCC)
+    {
+        abort();
+    }
 
     OpTaskVisitor taskVisitor(*this, pContext);
     pTask->Accept(taskVisitor);
@@ -111,9 +118,7 @@ void GraphRunner::RunInternal(std::shared_ptr<Context>& pContext, const std::str
 
 void GraphRunner::RunSyncOp(std::shared_ptr<Context>& pContext, SyncOpTaskBase& opTask)
 {
-    //TODO: ret处理
-    //TODO: 并发问题考虑
-    //int ret;
+    int rtn;
 
     int inputNameListSize = opTask.mInputNameList.size();
     int outputNameListSize = opTask.mOutputNameList.size();
@@ -121,34 +126,62 @@ void GraphRunner::RunSyncOp(std::shared_ptr<Context>& pContext, SyncOpTaskBase& 
     std::unique_ptr<OpInputDataList> pInputList(new OpInputDataList(inputNameListSize));
     for (int i = 0; i < inputNameListSize; i++)
     {
-        const void* data = pContext->GetOpOutputData(opTask.mInputNameList[i]);
+        const void* data = NULL;
+        rtn = pContext->GetOpOutputData(opTask.mInputNameList[i], data);
+        if (rtn != SUCC)
+        {
+            abort();
+        }
         pInputList->SetData(i, data);
     }
 
-    std::vector<std::unique_ptr<IOpData>> outputList(outputNameListSize);
-    opTask.Run(std::move(pInputList), outputList);
-    //check ret
-    //check outputList.size() == outputNameListSize
+    std::vector<std::unique_ptr<IOpData>> outputList;
+    rtn = opTask.Run(std::move(pInputList), outputList);
 
-    RunDone(pContext, opTask.mOutputNameList, outputList);
+    int outputListSize = outputList.size();
+    if (rtn == SUCC && outputNameListSize != outputListSize)
+    {
+        rtn = ERR;
+    }
+    if (rtn != SUCC)
+    {
+        //TODO: 设置全局的error info（atomic<T>），wait的时候返回error code
+
+        //TODO: task run可能会出现类型不对、参数数量不对等问题，需要考虑更好的异常处理
+        //TODO: 目前考虑将output data设置为null，后续op都跳过，wait返回错误
+        outputList.resize(outputNameListSize);
+        for (int i = 0; i < outputNameListSize; i++)
+        {
+            outputList[i].reset(new NullOpData());
+        }
+    }
+
+    RunOpDone(pContext, opTask.mOutputNameList, outputList);
 }
 
-void GraphRunner::RunDone(std::shared_ptr<Context>& pContext,
+void GraphRunner::RunOpDone(std::shared_ptr<Context>& pContext,
              const std::vector<std::string>& outputNameList,
              std::vector<std::unique_ptr<IOpData>>& outputList)
 {
-    //TODO: ret处理
-    //int ret;
+    int rtn;
 
     int outputNameListSize = outputNameList.size();
     for (int i = 0; i < outputNameListSize; i++)
     {
         const std::string& outputName = outputNameList[i];
 
-        pContext->SetOpOutputData(outputName, std::move(outputList[i]));
+        rtn = pContext->SetOpOutputData(outputName, std::move(outputList[i]));
+        if (rtn != SUCC)
+        {
+            abort();
+        }
 
         std::vector<std::string> nextOpNameList;
-        mpGraph->GetOpNameListByInputName(outputName, nextOpNameList);
+        rtn = mpGraph->GetOpNameListByInputName(outputName, nextOpNameList);
+        if (rtn != SUCC)
+        {
+            abort();
+        }
 
         int nextOpNameListSize = nextOpNameList.size();
         for (int j = 0; j < nextOpNameListSize; j++)
@@ -157,7 +190,11 @@ void GraphRunner::RunDone(std::shared_ptr<Context>& pContext,
             if (pContext->IncrAndCheckOpInputDataContext(nextOpName))
             {
                 //TODO: 这里需要细考虑，直接加到thread pool应该会有死锁问题，buffer设置小的情况下，都会阻塞住，然后又消费不掉
-                mpThreadPool->Submit(std::make_shared<ExecuteTask>(*this, pContext, nextOpName));
+                rtn = mpThreadPool->Submit(std::make_shared<ExecuteTask>(*this, pContext, nextOpName));
+                if (rtn != SUCC)
+                {
+                    abort();
+                }
             }
         }
     }
