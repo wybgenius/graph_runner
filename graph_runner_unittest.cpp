@@ -42,17 +42,12 @@ TEST(GraphRunnerNormalUnitTest, SyncOpUnitTest1)
 
     std::vector<std::string> inputNameList;
 
-    inputNameList = {
-        Constants::sGraphRunnerInitInputName
-    };
     SyncTestOp op1(&count);
     op1.Init();
-    rtn = pGraph->AddOp<std::string, int>(inputNameList, "output1", "op1", op1);
+    rtn = pGraph->AddOp<std::string, int>(
+        Constants::sGraphRunnerInitInputName, "output1", "op1", op1);
     EXPECT_EQ(rtn, SUCC);
  
-    inputNameList = {
-        Constants::sGraphRunnerInitInputName
-    };
     auto op2 =
         [&count](const std::string* pInit,
                  OpOutput<double>& output) -> int
@@ -63,7 +58,8 @@ TEST(GraphRunnerNormalUnitTest, SyncOpUnitTest1)
             count++;
             return SUCC;
         };
-    rtn = pGraph->AddOp<std::string, double>(inputNameList, "output2", "op2", op2);
+    rtn = pGraph->AddOp<std::string, double>(
+        Constants::sGraphRunnerInitInputName, "output2", "op2", op2);
     EXPECT_EQ(rtn, SUCC);
 
     inputNameList = { "output1", "output2" };
@@ -108,13 +104,16 @@ public:
     int Init() { return SUCC; }
 
     void operator()(const std::string* pInit,
-                    const Graph::Callback<int>& callback) const
+                    const Graph::Callback<OpOutput<int>>& callback) const
     {
         EXPECT_EQ(*pInit, "abc");
 
         (*mCount)++;
 
-        callback(SUCC, std::unique_ptr<int>(new int(123)));
+        std::unique_ptr<OpOutput<int>> pResult(new OpOutput<int>());
+        pResult->SetNewData(new int(123));
+
+        callback(SUCC, std::move(pResult));
     }
 private:
     int* mCount;
@@ -127,31 +126,26 @@ TEST(GraphRunnerNormalUnitTest, ASyncOpUnitTest1)
 
     std::unique_ptr<Graph> pGraph(new Graph());
 
-    std::vector<std::string> inputNameList;
-
-    inputNameList = {
-        Constants::sGraphRunnerInitInputName
-    };
     ASyncTestOp aop1(&count);
     aop1.Init();
-    rtn = pGraph->AddOp<std::string, int>(inputNameList, "output1", "aop1", aop1);
+    rtn = pGraph->AddOp<std::string, int>(
+        Constants::sGraphRunnerInitInputName, "output1", "aop1", aop1);
     EXPECT_EQ(rtn, SUCC);
 
-    inputNameList = {
-        Constants::sGraphRunnerInitInputName
-    };
     //TODO：callback中加timer来进行测试
     auto aop2 =
         [&count](const std::string* pInit,
-                 const Graph::Callback<int>& callback)
+                 const Graph::Callback<OpOutput<int>>& callback)
         {
             EXPECT_EQ(*pInit, "abc");
 
             count++;
 
-            callback(SUCC, std::unique_ptr<int>(new int(123)));
+            std::unique_ptr<OpOutput<int>> pResult(new OpOutput<int>());
+            pResult->SetNewData(new int(789));
         };
-    rtn = pGraph->AddOp<std::string, int>(inputNameList, "output2", "aop2", aop2);
+    rtn = pGraph->AddOp<std::string, int>(
+        Constants::sGraphRunnerInitInputName, "output2", "aop2", aop2);
     EXPECT_EQ(rtn, SUCC);
 
     rtn = pGraph->Build();

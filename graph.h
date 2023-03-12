@@ -26,37 +26,37 @@ public:
     //TODO: input和output可变参数问题，目前在函数上使用可变参数会有解析问题，并且函数对象会不支持
 
     //添加同步op，这是1输入1输出
-    template <typename InputType0, typename OutputType>
+    template <typename InputType0, typename OutputType0>
     int AddOp(
-            const std::vector<std::string>& inputNameList,
+            const std::string& inputName,
             const std::string& outputName,
             const std::string& opName,
             const std::function<int(const InputType0*,
-                                    OpOutput<OutputType>&)>& func)
+                                    OpOutput<OutputType0>&)>& func)
     { return SUCC; }
 
     //添加同步op，这是1输入2输出
-    template <typename InputType0, typename InputType1, typename OutputType>
+    template <typename InputType0, typename InputType1, typename OutputType0>
     int AddOp(
             const std::vector<std::string>& inputNameList,
             const std::string& outputName,
             const std::string& opName,
             const std::function<int(const InputType0*,
                                     const InputType1*,
-                                    OpOutput<OutputType>&)>& func)
+                                    OpOutput<OutputType0>&)>& func)
     { return SUCC; }
 
-    template <typename OutputType>
-    using Callback = std::function<void(int, std::unique_ptr<OutputType>&&)>;
+    template <typename Type>
+    using Callback = std::function<void(int, std::unique_ptr<Type>&&)>;
 
     //添加异步op，这是1输入1输出
-    template <typename InputType0, typename OutputType>
+    template <typename InputType0, typename OutputType0>
     int AddOp(
-            const std::vector<std::string>& inputNameList,
+            const std::string& inputName,
             const std::string& outputName,
             const std::string& opName,
             const std::function<void(const InputType0*,
-                                     const Callback<OutputType>&)>& func)
+                                     const Callback<OpOutput<OutputType0>>&)>& func)
     { return SUCC; }
 
     //检查graph的完整性
