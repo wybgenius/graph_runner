@@ -7,7 +7,6 @@
 #include <thread>
 #include <future>
 
-#include "object_buffer.h"
 #include "error_code.h"
 
 namespace graphrunner
@@ -16,12 +15,9 @@ namespace graphrunner
 class ThreadPool
 {
 public:
-    ThreadPool(int nThreads, int maxTaskNum);
+    ThreadPool(int nThreads, int maxTaskNum) { }
 
-    virtual int GetThreadsNum() { return mNThreads; }
-    virtual int GetMaxTaskNum() { return mMaxTaskNum; }
-
-    virtual ~ThreadPool();
+    virtual ~ThreadPool() { }
 
 public:
     typedef std::function<int()> Function;
@@ -29,22 +25,22 @@ public:
     class Task
     {
     public:
-        Task(const Function &function);
+        Task(const Function &function) { }
 
-        Task();
+        Task() { }
 
-        virtual ~Task();
+        virtual ~Task() { }
 
-        virtual void Submitted();
+        virtual void Submitted() { }
 
-        virtual void Run();
+        virtual void Run() { }
 
-        virtual int Wait(int &rtn);
+        virtual int Wait(int &rtn) { return SUCC; }
 
-        virtual void Wait();
+        virtual void Wait() { }
 
     protected:
-        virtual std::future<int> &GetFuture();
+        virtual std::future<int> &GetFuture() { return mFuture; }
 
     private:
         std::future<int> mFuture;
@@ -56,12 +52,8 @@ public:
 public:
     virtual int Submit(TaskPtr pTask) { return SUCC; }
 
-    virtual int TrySubmit(TaskPtr pTask) { return SUCC; }
-
-    virtual int GetRunningTaskSize() const { return SUCC; }
-
 private:
-    ObjectBuffer<TaskPtr> *mpTaskBuffer;
+    //ObjectBuffer<TaskPtr> *mpTaskBuffer;
     std::vector<std::thread*> mThreads;
 
     int mNThreads;
