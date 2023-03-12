@@ -65,6 +65,12 @@ public:
     { }
 
     virtual ~ASyncOpTaskBase() { }
+
+    template <typename T>
+    using Callback = std::function<void(int, std::unique_ptr<T>&&)>;
+
+    virtual void Run(std::vector<std::unique_ptr<IOpData>>& inputList,
+                     const Callback<std::vector<std::unique_ptr<IOpData>>>& callback) = 0;
 };
 
 }

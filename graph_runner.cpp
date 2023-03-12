@@ -6,10 +6,8 @@
 namespace graphrunner
 {
 
-GraphRunner::GraphRunner(std::unique_ptr<Graph>&& pGraph,
-                         int nThreads,
-                         int maxTaskNum) :
-    mpGraph(std::move(pGraph)), mpThreadPool(new ThreadPool(nThreads, maxTaskNum))
+GraphRunner::GraphRunner(int nThreads) :
+    mNThreads(nThreads)
 {
 }
 
@@ -20,16 +18,26 @@ GraphRunner::~GraphRunner()
 
 int GraphRunner::Init(std::unique_ptr<Graph>&& pGraph)
 {
+    //TODO: 基于graph构建runner内部的数据结构
+
+    mpGraph = std::move(pGraph);
+
     return SUCC;
 }
 
 int GraphRunner::Start()
 {
+    //TODO：目前thread pool的任务数量不限制，限制的话，submit和run op可能会导致互相等待的问题
+    //TODO：需要在sumbit上单独进行限制
+    mpThreadPool.reset(new ThreadPool(mNThreads, std::numeric_limits<int>::max()));
+
     return SUCC;
 }
 
 int GraphRunner::Stop()
 {
+    mpThreadPool.reset();
+
     return SUCC;
 }
 
@@ -37,6 +45,7 @@ int GraphRunner::Wait()
 {
     //TODO: WaitableNumeric Wait
     //TODO: 返回全局的error code
+    //TODO；需要wait thread pool的任务执行完吗？
 
     return SUCC;
 }
@@ -88,14 +97,14 @@ private:
     std::string mOpName;
 };
 
-void GraphRunner::RunOpInternal(std::shared_ptr<Context>& pContext, const std::string& opName)
+void GraphRunner::RunOpInternal(std::shared_ptr<Context> pContext, const std::string& opName)
 {
     int rtn;
 
     //从graph中获取op信息
-    //TODO: 最好在graph runner init的时候就基于graph构建好runner侧的op信息，目前从graph上获取
-    std::shared_ptr<IOpTask> pTask;
-    rtn = mpGraph->GetOp(opName, pTask);
+    //TODO: 最好在graph runner init的时候就基于graph构建好runner侧的op信息，这样可以自己保证pTask的可用性，目前从graph上获取
+    IOpTask* pTask = NULL;
+    rtn = mpGraph->GetOp(opName, &pTask);
     if (rtn != SUCC)
     {
         abort();
@@ -104,12 +113,12 @@ void GraphRunner::RunOpInternal(std::shared_ptr<Context>& pContext, const std::s
     //根据op的类型来执行：sync、async
     if (pTask->mOpExecType == OpExecType::kSyncExec)
     {
-        SyncOpTaskBase* opTask = (SyncOpTaskBase*)pTask.get();
+        SyncOpTaskBase* opTask = (SyncOpTaskBase*)pTask;
         RunSyncOp(pContext, *opTask);
     }
     else if (pTask->mOpExecType == OpExecType::kASyncExec)
     {
-        ASyncOpTaskBase* opTask = (ASyncOpTaskBase*)pTask.get();
+        ASyncOpTaskBase* opTask = (ASyncOpTaskBase*)pTask;
         RunASyncOp(pContext, *opTask);
     }
     else
@@ -118,7 +127,7 @@ void GraphRunner::RunOpInternal(std::shared_ptr<Context>& pContext, const std::s
     }
 }
 
-void GraphRunner::RunSyncOp(std::shared_ptr<Context>& pContext, SyncOpTaskBase& opTask)
+void GraphRunner::RunSyncOp(std::shared_ptr<Context> pContext, SyncOpTaskBase& opTask)
 {
     int rtn;
 
@@ -156,7 +165,7 @@ void GraphRunner::RunSyncOp(std::shared_ptr<Context>& pContext, SyncOpTaskBase& 
         //TODO: 设置全局的error info（atomic<T>），wait的时候返回error code
 
         //TODO: task run可能会出现类型不对、参数数量不对等问题，需要考虑更好的异常处理
-        //TODO: 目前考虑将output data设置为null，后续op都跳过，wait返回错误
+        //TODO: 目前考虑将output data设置为null，后续op都跳过，但是waitable number会-1，最后wait返回错误
         outputList.resize(outputNameListSize);
         for (int i = 0; i < outputNameListSize; i++)
         {
@@ -168,12 +177,68 @@ void GraphRunner::RunSyncOp(std::shared_ptr<Context>& pContext, SyncOpTaskBase& 
     RunOpDone(pContext, opTask.mOutputNameList, outputList);
 }
 
-void GraphRunner::RunASyncOp(std::shared_ptr<Context>& pContext, ASyncOpTaskBase& opTask)
+void GraphRunner::RunASyncOp(std::shared_ptr<Context> pContext, ASyncOpTaskBase& opTask)
 {
+    int rtn;
 
+    int inputNameListSize = opTask.mInputNameList.size();
+
+    //准备op的input数据，从context中获取
+    std::vector<std::unique_ptr<IOpData>> inputList(inputNameListSize);
+    for (int i = 0; i < inputNameListSize; i++)
+    {
+        const void* data = NULL;
+        rtn = pContext->GetOpOutputData(opTask.mInputNameList[i], data);
+        if (rtn != SUCC)
+        {
+            abort();
+        }
+
+        std::unique_ptr<OpInputData> pData(new OpInputData());
+        pData->SetData(data);
+        inputList[i] = std::move(pData);
+    }
+
+    //op callback
+    //TODO：由于是callback，这里需要注意内存的问题，callback在被调用前，涉及的数据和callback不会释放掉
+    //TODO：this、pContext、opTask目前看都不会有问题，这里需要测试下有没有问题
+    //TODO：callback需要在最后关联到给用户的op callback上，这里需要测试下有没有问题
+    //TODO：可能会出现callback已经执行完成，但是当前线程逻辑还没有执行完，会有什么影响需要再思考下
+    auto callback =
+        [this, pContext, &opTask]
+        (int rtn, std::unique_ptr<std::vector<std::unique_ptr<IOpData>>>&& pResult) -> void
+        {
+            std::unique_ptr<std::vector<std::unique_ptr<IOpData>>> pOutputList = std::move(pResult);
+
+            //op执行结果检查
+            int outputNameListSize = opTask.mOutputNameList.size();
+            int outputListSize = pOutputList->size();
+            if (rtn == SUCC && outputNameListSize != outputListSize)
+            {
+                rtn = ERR;
+            }
+            if (rtn != SUCC)
+            {
+                //TODO: 设置全局的error info（atomic<T>），wait的时候返回error code
+
+                //TODO: task run可能会出现类型不对、参数数量不对等问题，需要考虑更好的异常处理
+                //TODO: 目前考虑将output data设置为null，后续op都跳过，但是waitable number会-1，最后wait返回错误
+                pOutputList->resize(outputNameListSize);
+                for (int i = 0; i < outputNameListSize; i++)
+                {
+                    pOutputList->at(i).reset(new NullOpData());
+                }
+            }
+
+            //op后处理
+            this->RunOpDone(pContext, opTask.mOutputNameList, *(pOutputList.get()));
+        };
+
+    //op执行
+    opTask.Run(inputList, callback);
 }
 
-void GraphRunner::RunOpDone(std::shared_ptr<Context>& pContext,
+void GraphRunner::RunOpDone(std::shared_ptr<Context> pContext,
              const std::vector<std::string>& outputNameList,
              std::vector<std::unique_ptr<IOpData>>& outputList)
 {
@@ -205,7 +270,6 @@ void GraphRunner::RunOpDone(std::shared_ptr<Context>& pContext,
             const std::string& nextOpName = nextOpNameList[j];
             if (pContext->IncrAndCheckOpContext(nextOpName))
             {
-                //TODO: 这里需要细考虑，直接加到thread pool应该会有死锁问题，buffer设置小的情况下，都会阻塞住，然后又消费不掉
                 rtn = mpThreadPool->Submit(std::make_shared<OpExecuteTask>(*this, pContext, nextOpName));
                 if (rtn != SUCC)
                 {

@@ -20,9 +20,7 @@ namespace graphrunner
 class GraphRunner
 {
 public:
-    GraphRunner(std::unique_ptr<Graph>&& pGraph,
-                int nThreads,
-                int maxTaskNum);
+    GraphRunner(int nThreads);
 
     virtual ~GraphRunner();
 
@@ -48,22 +46,23 @@ private:
     class OpExecuteTask;
 
     //op的内部执行入口
-    void RunOpInternal(std::shared_ptr<Context>& pContext, const std::string& opName);
+    void RunOpInternal(std::shared_ptr<Context> pContext, const std::string& opName);
 
     //同步op的执行入口
-    void RunSyncOp(std::shared_ptr<Context>& pContext, SyncOpTaskBase& opTask);
+    void RunSyncOp(std::shared_ptr<Context> pContext, SyncOpTaskBase& opTask);
 
     //异步op的执行入口
-    void RunASyncOp(std::shared_ptr<Context>& pContext, ASyncOpTaskBase& opTask);
+    void RunASyncOp(std::shared_ptr<Context> pContext, ASyncOpTaskBase& opTask);
 
     //op执行完成的后处理
-    void RunOpDone(std::shared_ptr<Context>& pContext,
+    void RunOpDone(std::shared_ptr<Context> pContext,
                  const std::vector<std::string>& outputNameList,
                  std::vector<std::unique_ptr<IOpData>>& outputList);
 
 private:
     std::unique_ptr<Graph> mpGraph;
 
+    int mNThreads;
     std::unique_ptr<ThreadPool> mpThreadPool;
 };
 
