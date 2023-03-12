@@ -9,37 +9,14 @@
 namespace graphrunner
 {
 
-class OpInputDataList : public IOpDataList
-{
-public:
-    OpInputDataList(int size)
-    {
-        mSize = size;
-
-        mDataList.resize(size);
-    }
-
-    virtual ~OpInputDataList() { }
-
-    virtual int Size() const override { return mSize; }
-
-    virtual const void* GetData(int i) const override { return mDataList[i]; }
-
-    void SetData(int i, const void* pData) { mDataList[i] = pData; }
-
-private:
-    int mSize;
-
-    std::vector<const void*> mDataList;
-};
-
+//graph runner submit单个输入数据的类型
 template <typename Type>
-class UniqPtrOpData : public IOpData
+class OpInitData : public IOpData
 {
 public:
-    UniqPtrOpData() { }
+    OpInitData() { }
     
-    virtual ~UniqPtrOpData() { }
+    virtual ~OpInitData() { }
 
     virtual const void* GetData() const override
     {   
@@ -60,19 +37,29 @@ private:
     std::unique_ptr<Type> mpData;
 };
 
-class NullOpData : public IOpData
+//op单个输入数据的类型
+class OpInputData : public IOpData
 {
 public:
-    NullOpData() { }
-    
-    virtual ~NullOpData() { }
+    OpInputData() { }
+
+    virtual ~OpInputData() { }
 
     virtual const void* GetData() const override
-    {   
-        return NULL;
+    {
+        return mpData;
     }
+
+    void SetData(const void* pData)
+    {
+        mpData = pData;
+    }
+
+private:
+    const void* mpData;
 };
 
+//op单个输出数据的类型
 template <typename Type>
 class OpOutputData : public IOpData
 {
@@ -110,6 +97,20 @@ public:
 private:
     Type* mpData;
     bool mDataAutoDelete;
+};
+
+//op执行异常的情况下，目前通过NULL数据跳过后续op的执行
+class NullOpData : public IOpData
+{
+public:
+    NullOpData() { }
+
+    virtual ~NullOpData() { }
+
+    virtual const void* GetData() const override
+    {
+        return NULL;
+    }
 };
 
 }

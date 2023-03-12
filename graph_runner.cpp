@@ -18,6 +18,11 @@ GraphRunner::~GraphRunner()
     Stop();
 }
 
+int GraphRunner::Init(std::unique_ptr<Graph>&& pGraph)
+{
+    return SUCC;
+}
+
 int GraphRunner::Start()
 {
     return SUCC;
@@ -36,13 +41,39 @@ int GraphRunner::Wait()
     return SUCC;
 }
 
-class GraphRunner::ExecuteTask : public ThreadPool::Task
+int GraphRunner::SubmitInternal(const std::vector<std::string>& initNameList,
+                                std::vector<std::unique_ptr<IOpData>>& initDataList)
+{
+    int rtn;
+
+    //创建context
+    std::shared_ptr<Context> pContext(new Context());
+
+    //context上针对每个op做初始化
+    int opSize = mpGraph->OpSize();
+    for (int i = 0; i < opSize; i++)
+    {
+        int opInputDataSize = mpGraph->GetOpInputDataSize(i);
+        std::string opName = mpGraph->GetOpName(i);
+        rtn = pContext->InitOpContext(opName, opInputDataSize);
+        CHECK_RTN(rtn);
+    }
+
+    //TODO: 增加Wait的等待， WaitableNumeric Add opSize
+
+    //当作init op来进行后处理
+    RunOpDone(pContext, initNameList, initDataList);
+
+    return SUCC;
+}
+
+class GraphRunner::OpExecuteTask : public ThreadPool::Task
 {
 public:
-    ExecuteTask(GraphRunner& runner, std::shared_ptr<Context>& pContext, const std::string& opName) :
+    OpExecuteTask(GraphRunner& runner, std::shared_ptr<Context>& pContext, const std::string& opName) :
         mRunner(runner), mpContext(pContext), mOpName(opName)
     { }
-    virtual ~ExecuteTask() { }
+    virtual ~OpExecuteTask() { }
     virtual void Submitted() { }
     virtual int Wait(int &rtn) { return SUCC; }
     virtual void Wait() { }
@@ -57,54 +88,12 @@ private:
     std::string mOpName;
 };
 
-int GraphRunner::SubmitInternal(const std::vector<std::string>& initNameList,
-                                std::vector<std::unique_ptr<IOpData>>& initDataList)
-{
-    int rtn;
-
-    std::shared_ptr<Context> pContext(new Context());
-
-    int opSize = mpGraph->OpSize();
-    for (int i = 0; i < opSize; i++)
-    {
-        int opInputDataSize = mpGraph->GetOpInputDataSize(i);
-        std::string opName = mpGraph->GetOpName(i);
-        rtn = pContext->InitOpInputDataContext(opName, opInputDataSize);
-        CHECK_RTN(rtn);
-    }
-
-    //TODO: WaitableNumeric Add opSize
-
-    //init fake op run done
-    RunOpDone(pContext, initNameList, initDataList);
-
-    return SUCC;
-}
-
-class GraphRunner::OpTaskVisitor : public IOpTaskVisitor
-{
-public:
-    OpTaskVisitor(GraphRunner& runner, std::shared_ptr<Context>& pContext) :
-        mRunner(runner), mpContext(pContext)
-    { }
-    virtual ~OpTaskVisitor() { }
-
-    virtual void Visit(SyncOpTaskBase& opTask) override
-    {
-        mRunner.RunSyncOp(mpContext, opTask);
-    }
-
-    //virtual void Visit(ASyncOpTaskBase& opTask) override
-
-private:
-    GraphRunner& mRunner;
-    std::shared_ptr<Context> mpContext;
-};
-
 void GraphRunner::RunOpInternal(std::shared_ptr<Context>& pContext, const std::string& opName)
 {
     int rtn;
 
+    //从graph中获取op信息
+    //TODO: 最好在graph runner init的时候就基于graph构建好runner侧的op信息，目前从graph上获取
     std::shared_ptr<IOpTask> pTask;
     rtn = mpGraph->GetOp(opName, pTask);
     if (rtn != SUCC)
@@ -112,8 +101,21 @@ void GraphRunner::RunOpInternal(std::shared_ptr<Context>& pContext, const std::s
         abort();
     }
 
-    OpTaskVisitor taskVisitor(*this, pContext);
-    pTask->Accept(taskVisitor);
+    //根据op的类型来执行：sync、async
+    if (pTask->mOpExecType == OpExecType::kSyncExec)
+    {
+        SyncOpTaskBase* opTask = (SyncOpTaskBase*)pTask.get();
+        RunSyncOp(pContext, *opTask);
+    }
+    else if (pTask->mOpExecType == OpExecType::kASyncExec)
+    {
+        ASyncOpTaskBase* opTask = (ASyncOpTaskBase*)pTask.get();
+        RunASyncOp(pContext, *opTask);
+    }
+    else
+    {
+        abort();
+    }
 }
 
 void GraphRunner::RunSyncOp(std::shared_ptr<Context>& pContext, SyncOpTaskBase& opTask)
@@ -123,7 +125,8 @@ void GraphRunner::RunSyncOp(std::shared_ptr<Context>& pContext, SyncOpTaskBase& 
     int inputNameListSize = opTask.mInputNameList.size();
     int outputNameListSize = opTask.mOutputNameList.size();
 
-    std::unique_ptr<OpInputDataList> pInputList(new OpInputDataList(inputNameListSize));
+    //准备op的input数据，从context中获取
+    std::vector<std::unique_ptr<IOpData>> inputList(inputNameListSize);
     for (int i = 0; i < inputNameListSize; i++)
     {
         const void* data = NULL;
@@ -132,12 +135,17 @@ void GraphRunner::RunSyncOp(std::shared_ptr<Context>& pContext, SyncOpTaskBase& 
         {
             abort();
         }
-        pInputList->SetData(i, data);
+
+        std::unique_ptr<OpInputData> pData(new OpInputData());
+        pData->SetData(data);
+        inputList[i] = std::move(pData);
     }
 
+    //op执行
     std::vector<std::unique_ptr<IOpData>> outputList;
-    rtn = opTask.Run(std::move(pInputList), outputList);
+    rtn = opTask.Run(inputList, outputList);
 
+    //op执行结果检查
     int outputListSize = outputList.size();
     if (rtn == SUCC && outputNameListSize != outputListSize)
     {
@@ -156,7 +164,13 @@ void GraphRunner::RunSyncOp(std::shared_ptr<Context>& pContext, SyncOpTaskBase& 
         }
     }
 
+    //op后处理
     RunOpDone(pContext, opTask.mOutputNameList, outputList);
+}
+
+void GraphRunner::RunASyncOp(std::shared_ptr<Context>& pContext, ASyncOpTaskBase& opTask)
+{
+
 }
 
 void GraphRunner::RunOpDone(std::shared_ptr<Context>& pContext,
@@ -170,12 +184,14 @@ void GraphRunner::RunOpDone(std::shared_ptr<Context>& pContext,
     {
         const std::string& outputName = outputNameList[i];
 
+        //context上更新op执行结果
         rtn = pContext->SetOpOutputData(outputName, std::move(outputList[i]));
         if (rtn != SUCC)
         {
             abort();
         }
 
+        //更新当前op关联的后续op的状态，如果input都已经ready，则创建task执行
         std::vector<std::string> nextOpNameList;
         rtn = mpGraph->GetOpNameListByInputName(outputName, nextOpNameList);
         if (rtn != SUCC)
@@ -187,10 +203,10 @@ void GraphRunner::RunOpDone(std::shared_ptr<Context>& pContext,
         for (int j = 0; j < nextOpNameListSize; j++)
         {
             const std::string& nextOpName = nextOpNameList[j];
-            if (pContext->IncrAndCheckOpInputDataContext(nextOpName))
+            if (pContext->IncrAndCheckOpContext(nextOpName))
             {
                 //TODO: 这里需要细考虑，直接加到thread pool应该会有死锁问题，buffer设置小的情况下，都会阻塞住，然后又消费不掉
-                rtn = mpThreadPool->Submit(std::make_shared<ExecuteTask>(*this, pContext, nextOpName));
+                rtn = mpThreadPool->Submit(std::make_shared<OpExecuteTask>(*this, pContext, nextOpName));
                 if (rtn != SUCC)
                 {
                     abort();
@@ -199,7 +215,7 @@ void GraphRunner::RunOpDone(std::shared_ptr<Context>& pContext,
         }
     }
 
-    //TODO: WaitableNumeric - 1
+    //TODO: 当前op执行完毕，通知Wait， WaitableNumeric - 1
 }
 
 }
