@@ -113,12 +113,12 @@ void GraphRunner::RunOpInternal(std::shared_ptr<Context> pContext, const std::st
     //根据op的类型来执行：sync、async
     if (pTask->mOpExecType == OpExecType::kSyncExec)
     {
-        SyncOpTaskBase* opTask = (SyncOpTaskBase*)pTask;
+        SyncOpTaskBase* opTask = static_cast<SyncOpTaskBase*>(pTask);
         RunSyncOp(pContext, *opTask);
     }
     else if (pTask->mOpExecType == OpExecType::kASyncExec)
     {
-        ASyncOpTaskBase* opTask = (ASyncOpTaskBase*)pTask;
+        ASyncOpTaskBase* opTask = static_cast<ASyncOpTaskBase*>(pTask);
         RunASyncOp(pContext, *opTask);
     }
     else
